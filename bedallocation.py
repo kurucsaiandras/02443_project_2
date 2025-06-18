@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import chi2, norm, t
 import numpy as np
 import math
+import heapq
 
 class QueueSimulation:
     def __init__(self, bed_capacities,
@@ -39,11 +40,11 @@ class QueueSimulation:
         return np.random.exponential(self.leaving_rates[patient_type])
     
     def schedule_event(self, event):
-        self.event_queue.append(event)
-        self.event_queue.sort(key=lambda x: x[1])
+        # Assuming event[1] is the time or priority
+        heapq.heappush(self.event_queue, event)
     
     def process_event(self, event):
-        event_type, event_time, patient_type = event
+        event_time, event_type, patient_type = event
         self.curr_time = event_time
         
         if event_type == 'a':  # arrival
@@ -51,7 +52,7 @@ class QueueSimulation:
             if self.bed_capacities[patient_type] > 0: # bed available in the correct ward
                 self.bed_capacities[patient_type] -= 1
                 self.served_patients += 1
-                self.schedule_event(('d', self.curr_time + self.sample_departure(patient_type), patient_type))
+                self.schedule_event((self.curr_time + self.sample_departure(patient_type), 'd', patient_type))
             else:
                 # choose another ward based on transition probabilities
                 next_ward = np.random.choice(len(self.p_mtx[patient_type]), p=self.p_mtx[patient_type])
@@ -59,12 +60,12 @@ class QueueSimulation:
                 if self.bed_capacities[next_ward] > 0:
                     self.bed_capacities[next_ward] -= 1
                     self.served_patients += 1
-                    self.schedule_event(('d', self.curr_time + self.sample_departure(patient_type), next_ward))
+                    self.schedule_event((self.curr_time + self.sample_departure(patient_type), 'd', next_ward))
                 else:
                     self.blocked_patients += 1
                     self.blocks[patient_type] += 1
             patient_type = np.random.choice(len(self.arrival_probs), p=self.arrival_probs)
-            self.schedule_event(('a', self.curr_time + self.sample_arrival(), patient_type))
+            self.schedule_event((self.curr_time + self.sample_arrival(), 'a', patient_type))
         
         elif event_type == 'd':  # departure
             self.bed_capacities[patient_type] += 1
@@ -74,8 +75,8 @@ class QueueSimulation:
         for _ in range(self.warmup_period):
             if not self.event_queue:
                 patient_type = np.random.choice(len(self.arrival_probs), p=self.arrival_probs)
-                self.schedule_event(('a', self.sample_arrival(), patient_type))
-            event = self.event_queue.pop(0)
+                self.schedule_event((self.sample_arrival(), 'a', patient_type))
+            event = heapq.heappop(self.event_queue)
             self.process_event(event)
 
         loss_scores = []
@@ -87,8 +88,8 @@ class QueueSimulation:
             curr_transfers = self.transfers.copy()
             arrived_patients = 0
             while arrived_patients < self.max_patients:
-                event = self.event_queue.pop(0)
-                if event[0] == 'a':
+                event = heapq.heappop(self.event_queue)
+                if event[1] == 'a':
                     arrived_patients += 1
                 self.process_event(event)
             curr_blocks = self.blocks - curr_blocks
@@ -103,7 +104,16 @@ class QueueSimulation:
             'all blocking_probability': self.blocked_patients / (self.served_patients + self.blocked_patients),
             'loss_scores': loss_scores
         }
-    
+
+def round_preserve_sum(x):
+    floored = np.floor(x)
+    remainder = x - floored
+    num_to_round_up = int(round(np.sum(x) - np.sum(floored)))
+    indices = np.argsort(-remainder)  # sort descending
+    result = floored.copy()
+    result[indices[:num_to_round_up]] += 1
+    return result.astype(int)
+
 def main():
     n_iter = 50
     n_patients = 10000
