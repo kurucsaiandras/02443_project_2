@@ -24,8 +24,6 @@ class QueueSimulation:
         self.iterations = iterations
         
         self.curr_time = 0
-        self.served_patients = 0
-        self.blocked_patients = 0
         self.event_queue = []
 
         # extra statistics
@@ -51,7 +49,6 @@ class QueueSimulation:
             self.arrivals[patient_type] += 1
             if self.bed_capacities[patient_type] > 0: # bed available in the correct ward
                 self.bed_capacities[patient_type] -= 1
-                self.served_patients += 1
                 self.schedule_event((self.curr_time + self.sample_departure(patient_type), 'd', patient_type))
             else:
                 # choose another ward based on transition probabilities
@@ -59,10 +56,8 @@ class QueueSimulation:
                 self.transfers[patient_type] += 1 # TRY transfering to another ward
                 if self.bed_capacities[next_ward] > 0:
                     self.bed_capacities[next_ward] -= 1
-                    self.served_patients += 1
                     self.schedule_event((self.curr_time + self.sample_departure(patient_type), 'd', next_ward))
                 else:
-                    self.blocked_patients += 1
                     self.blocks[patient_type] += 1
             patient_type = np.random.choice(len(self.arrival_probs), p=self.arrival_probs)
             self.schedule_event((self.curr_time + self.sample_arrival(), 'a', patient_type))
@@ -80,10 +75,14 @@ class QueueSimulation:
             self.process_event(event)
 
         loss_scores = []
+        arrival_results = []
+        blocks_results = []
+        transfers_results = []
         for _ in range(self.iterations):
             # print progress
             print(f"Iteration {_ + 1}/{self.iterations}")
             # record current statistics
+            curr_arrivals = self.arrivals.copy()
             curr_blocks = self.blocks.copy()
             curr_transfers = self.transfers.copy()
             arrived_patients = 0
@@ -92,16 +91,20 @@ class QueueSimulation:
                 if event[1] == 'a':
                     arrived_patients += 1
                 self.process_event(event)
+            curr_arrivals = self.arrivals - curr_arrivals
             curr_blocks = self.blocks - curr_blocks
             curr_transfers = self.transfers - curr_transfers
+            arrival_results.append(curr_arrivals)
+            blocks_results.append(curr_blocks)
+            transfers_results.append(curr_transfers)
             # compute loss score
             loss_scores.append((np.sum(curr_blocks * self.urgency_points) + np.sum(curr_transfers * self.urgency_points)) / self.max_patients)
         loss_scores = np.array(loss_scores)
         
         return {
-            'all served': self.served_patients,
-            'all blocked': self.blocked_patients,
-            'all blocking_probability': self.blocked_patients / (self.served_patients + self.blocked_patients),
+            'arrivals': np.array(arrival_results),
+            'transfers': np.array(transfers_results),
+            'blocks': np.array(blocks_results),
             'loss_scores': loss_scores
         }
 
@@ -115,13 +118,13 @@ def round_preserve_sum(x):
     return result.astype(int)
 
 def main():
-    n_iter = 50
+    n_iter = 100
     n_patients = 10000
     warmup_period = 1000
-    beds_in_f = 35
-    beds_to_take = np.array([7, 7, 7, 7, 7, 0])
-    assert np.sum(beds_to_take) == beds_in_f, "Total beds to take has to equal beds in F ward"
+    beds_in_f = 34
     bed_capacities=np.array([55, 40, 30, 20, 20, beds_in_f])
+    beds_to_take = np.append(round_preserve_sum(bed_capacities[:-1] / np.sum(bed_capacities[:-1]) * beds_in_f), 0)
+    assert np.sum(beds_to_take) == beds_in_f, "Total beds to take has to equal beds in F ward"
     bed_capacities = bed_capacities - beds_to_take
     arrival_rates=np.array([14.5, 11, 8, 6.5, 5, 13])
     leaving_rates=np.array([2.9, 4, 4.5, 1.4, 3.9, 2.2])
@@ -137,12 +140,17 @@ def main():
     
     sim = QueueSimulation(bed_capacities, arrival_rates, leaving_rates, urgency_points, p_mtx, n_patients, warmup_period, n_iter)
     results = sim.run()
+
     loss_scores = results['loss_scores']
     avg_loss_score = np.mean(loss_scores)
     std_loss_score = np.std(loss_scores)
     ci = 1.96 * std_loss_score / np.sqrt(n_iter)  # 95% CI for the mean
     print(f"Average loss score: {avg_loss_score:.4f} ± {ci:.4f} (95% CI)")
-    print(f"Blocking probability: {results['all blocking_probability']:.4f}")
+    all_arrivals = np.sum(results['arrivals'])
+    all_blocks = np.sum(results['blocks'])
+    print(f"Blocking probability (all): {all_blocks / all_arrivals:.4f} (total arrivals: {all_arrivals})")
+    config_name = "proportional_beds"
+    np.savez(f"results_{config_name}.npz", **results)
 
 if __name__ == "__main__":
     main()
