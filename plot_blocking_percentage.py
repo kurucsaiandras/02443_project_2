@@ -4,9 +4,10 @@ from scipy.stats import sem
 import matplotlib.ticker as mtick
 import matplotlib.cm as cm
 
-configs_to_show = ['no_f_ward', 'proportional_beds', 'const_beds']
+configs_to_show = ['no_f_ward', 'const_beds', 'proportional_beds', 'andras_method', 'valdemar_method']
+config_names = ['No F Ward', 'Subtract evenly', 'Subtract proportionally', 'Iterative bed swapping', 'Simulated annealing']
 num_wards = 6
-ward_labels = [f"Ward {i+1}" for i in range(num_wards)]
+ward_labels = [f"Ward {chr(ord('A') + i)}" for i in range(num_wards)]
 
 blocking_means = []
 blocking_cis = []
@@ -44,7 +45,7 @@ fig, ax = plt.subplots(figsize=(12, 6))
 for i, (means, cis) in enumerate(zip(blocking_means, blocking_cis)):
     bar_pos = x - 0.4 + i * width + width / 2
     ax.bar(bar_pos, means, width, yerr=cis,
-           label=configs_to_show[i], capsize=4)
+           label=config_names[i], capsize=4)
 
 ax.set_ylabel('Blocking Percentage')
 ax.set_title('Blocking Percentage per Ward with 95% CI')
@@ -55,3 +56,4 @@ ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
 
 plt.tight_layout()
 plt.show()
+fig.savefig("figures/blocking_percentage.png", dpi=300)
